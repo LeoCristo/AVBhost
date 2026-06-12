@@ -17,7 +17,18 @@ python fire_detector_app.py
 ```
 
 
-<img width="392" height="289" alt="image" src="https://github.com/user-attachments/assets/24f88176-b3d9-414d-9a63-f617bb29b7d2" />
+<img width="384" height="275" alt="image" src="https://github.com/user-attachments/assets/7c7b4b14-aa23-48cd-9860-a982c47fd2be" />
+
+<img width="877" height="668" alt="image" src="https://github.com/user-attachments/assets/aa324854-8751-45c4-9103-125048c0b37f" />
+
+Teste com imagem do host;
+--Apertar em Abrir e escolher uma imagem com fogo
+-- no canto superior direito a inferência é mostrada
+-- no canto direito o logo das posições detectadas de queimada
+<img width="1915" height="1030" alt="image" src="https://github.com/user-attachments/assets/ae7849aa-2bf6-4960-a983-97e1ca382fd7" />
+
+
+
 
 
 
