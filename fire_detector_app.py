@@ -23,12 +23,16 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QLineEdit,
+    QComboBox,
     QSplitter,
     QToolBar,
     QAction,
     QTextEdit,
     QSizePolicy,
     QDialog,
+    QListWidget,
+    QListWidgetItem,
+    QListView,
 )
 
 
@@ -667,140 +671,153 @@ class MainWindow(QMainWindow):
         self.image_label = QLabel("Carregue uma imagem ou inicie a câmera")
         self.image_label.setAlignment(Qt.AlignCenter)
 
-        self.btn_webcam = QPushButton("Webcam: selecionar/usar")
-        self.btn_webcam.setToolTip("Clique para selecionar ou usar a webcam detectada")
-        self.btn_raspberry = QPushButton("Stream / Raspberry (URL)")
-        self.btn_raspberry.setToolTip("Abrir stream RTSP/HTTP ou endpoint de imagem")
-        self.btn_open_file = QPushButton("Abrir imagem/vídeo")
-        self.btn_open_file.setToolTip("Abrir arquivo de imagem ou vídeo para teste")
-        self.btn_load_model = QPushButton("Carregar modelo (.pt)")
-        self.btn_load_model.setToolTip("Carregar arquivo .pt customizado")
-        self.btn_stop_cam = QPushButton("Parar fonte")
-        self.btn_stop_cam.setToolTip("Parar captura/stream atual")
-        self.btn_quit = QPushButton("Sair")
-        self.btn_quit.setToolTip("Fechar o aplicativo")
-
+        # recreate top buttons (Webcam, Raspberry, Abrir, Carregar modelo, Parar)
+        self.btn_webcam = QPushButton("Webcam")
+        self.btn_webcam.setToolTip("Selecionar/usar webcam")
         self.btn_webcam.clicked.connect(self.use_webcam)
-        self.btn_raspberry.clicked.connect(self.use_raspberry)
-        self.btn_open_file.clicked.connect(self.open_file)
-        self.btn_load_model.clicked.connect(self.load_model_dialog)
-        self.btn_stop_cam.clicked.connect(self.stop_video)
-        self.btn_quit.clicked.connect(self.close)
 
-        controls = QHBoxLayout()
-        controls.addWidget(self.btn_webcam)
-        controls.addWidget(self.btn_raspberry)
-        controls.addWidget(self.btn_open_file)
-        controls.addWidget(self.btn_load_model)
-        controls.addWidget(self.btn_stop_cam)
-        controls.addWidget(self.btn_quit)
+        self.btn_raspberry = QPushButton("Stream")
+        self.btn_raspberry.setToolTip("Conectar stream RTSP/HTTP")
+        self.btn_raspberry.clicked.connect(self.use_raspberry)
+
+        self.btn_open_file = QPushButton("Abrir")
+        self.btn_open_file.setToolTip("Abrir arquivo de imagem ou vídeo")
+        self.btn_open_file.clicked.connect(self.open_file)
+
+        self.btn_load_model = QPushButton("Carregar modelo")
+        self.btn_load_model.setToolTip("Carregar arquivo .pt")
+        self.btn_load_model.clicked.connect(self.load_model_dialog)
+
+        self.btn_clear = QPushButton("Limpar")
+        self.btn_clear.setToolTip("Limpar imagem da tela")
+        self.btn_clear.clicked.connect(self.clear_image)
+
+        self.btn_stop_cam = QPushButton("Parar")
+        self.btn_stop_cam.setToolTip("Parar captura/stream atual")
+        self.btn_stop_cam.clicked.connect(self.stop_video)
 
         # logfile viewer
         self.log_widget = QTextEdit()
         self.log_widget.setReadOnly(True)
-        self.log_widget.setMaximumWidth(400)
 
-        # alert area (replaces popup alerts) - shows last alert message
+        # alert area (shows last alert message) above the log
         self.alert_label = QLabel("Nenhum alerta")
         self.alert_label.setAlignment(Qt.AlignCenter)
-        self.alert_label.setFixedHeight(60)
+        self.alert_label.setFixedHeight(56)
         self.alert_label.setWordWrap(True)
-        self.alert_label.setStyleSheet("background-color: #2b2b2b; color: #dcdcdc; padding:10px; border-radius:8px; font-weight:600;")
+        self.alert_label.setStyleSheet("background-color: #2b2b2b; color: #dcdcdc; padding:8px; border-radius:6px; font-weight:600;")
 
-        # main layout: left video + controls, right alerts+logs (splitter)
-        left_widget = QWidget()
-        left_layout = QVBoxLayout()
-        # top bar: model info + camera indicator
-        top_bar = QHBoxLayout()
-        self.model_info = QLabel(self.model_label.text())
-        self.model_info.setStyleSheet("font-weight:600; font-size:13px; color:#f0f0f0;")
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.cam_indicator = QLabel()
-        self.cam_indicator.setStyleSheet("color:#fff; padding-left:8px;")
-        self.cam_indicator.setContentsMargins(6, 0, 6, 0)
-        # connection animation state
-        self._cam_state = 'disconnected'  # 'disconnected' | 'connecting' | 'connected'
-        self._cam_pulse = 0.0
-        self._cam_anim_timer = QTimer(self)
-        self._cam_anim_timer.setInterval(80)
-        self._cam_anim_timer.timeout.connect(self._update_cam_anim)
-        # initialize indicator
-        self.set_cam_status('disconnected')
-        top_bar.addWidget(self.model_info)
-        # add visual connection widget
+        # Top-level widget: top row with buttons (left) and foo status (right), below: image (left) and log+alert (right)
+        main_widget = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout.setSpacing(6)
+
+        # Top row
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
+        top_row.setContentsMargins(2, 2, 2, 2)
+
+        # Left: wide buttons
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        for b in (self.btn_webcam, self.btn_raspberry, self.btn_open_file, self.btn_load_model, self.btn_clear, self.btn_stop_cam):
+            try:
+                b.setFixedHeight(36)
+                b.setMinimumWidth(140)
+                b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            except Exception:
+                pass
+            btn_layout.addWidget(b)
+
+        btn_container.setLayout(btn_layout)
+        top_row.addWidget(btn_container, 1)
+
+        # connection circular widget (place in top area)
         try:
-            self.conn_widget = ConnectionWidget()
-            top_bar.addWidget(self.conn_widget)
+            self.conn_widget = ConnectionWidget(self)
+            # slightly smaller to fit the top bar
+            try:
+                self.conn_widget.setFixedSize(180, 46)
+            except Exception:
+                pass
+            top_row.addWidget(self.conn_widget)
         except Exception:
-            top_bar.addWidget(spacer)
-        top_bar.addWidget(spacer)
-        top_bar.addWidget(self.cam_indicator)
-        left_layout.addLayout(top_bar)
-        # style the image area for a modern card look
-        self.image_label.setStyleSheet("background:#111213; border-radius:12px; border:1px solid #333; padding:8px;")
-        left_layout.addWidget(self.image_label)
-        left_layout.addLayout(controls)
-        left_widget.setLayout(left_layout)
+            self.conn_widget = None
 
-        right_widget = QWidget()
+        # keep right side free so buttons remain left-aligned
+        top_row.addStretch()
+
+        main_layout.addLayout(top_row)
+
+        # splitter with image (left) and log+alert (right)
+        splitter = QSplitter(Qt.Horizontal)
+
+        left_frame = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(4, 4, 4, 4)
+        left_layout.setSpacing(6)
+        # style the image area
+        self.image_label.setStyleSheet("background:#111213; border-radius:8px; border:1px solid #333;")
+        self.image_label.setMinimumSize(480, 360)
+        left_layout.addWidget(self.image_label)
+        left_frame.setLayout(left_layout)
+
+        right_frame = QWidget()
         right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(4, 4, 4, 4)
+        right_layout.setSpacing(6)
+        # alert above log
         right_layout.addWidget(self.alert_label)
         right_layout.addWidget(self.log_widget)
-        right_widget.setLayout(right_layout)
+        # gallery of previously seen images (thumbnails)
+        self.gallery_widget = QListWidget()
+        self.gallery_widget.setViewMode(QListWidget.IconMode)
+        self.gallery_widget.setIconSize(QSize(160, 90))
+        self.gallery_widget.setResizeMode(QListWidget.Adjust)
+        self.gallery_widget.setMovement(QListWidget.Static)
+        # show thumbnails left-to-right and wrap into rows instead of stacking
+        try:
+            self.gallery_widget.setFlow(QListView.LeftToRight)
+            self.gallery_widget.setWrapping(True)
+            self.gallery_widget.setSpacing(8)
+            self.gallery_widget.setGridSize(QSize(170, 100))
+            self.gallery_widget.setFixedHeight(110)
+        except Exception:
+            pass
+        self.gallery_widget.itemClicked.connect(self._on_gallery_item_clicked)
+        right_layout.addWidget(self.gallery_widget)
+        right_frame.setLayout(right_layout)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
+        splitter.addWidget(left_frame)
+        splitter.addWidget(right_frame)
         splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([700, 350])
 
-        self.setCentralWidget(splitter)
+        main_layout.addWidget(splitter)
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
 
-        # toolbar with small icons (reusing app_icon)
-        toolbar = QToolBar("Main")
-        toolbar.setIconSize(QSize(24, 24))
-        self.addToolBar(toolbar)
-        # load per-action icons (fallback to default)
-        def _icon(name):
-            p = os.path.join(os.getcwd(), name)
-            if os.path.exists(p):
-                return QIcon(p)
-            try:
-                return QIcon(DEFAULT_ICON_FILE)
-            except Exception:
-                return QIcon()
+        # (Removed QToolBar — buttons are provided in the top row inside central widget)
 
-        act_webcam = QAction(_icon("icon_webcam.png"), "Webcam", self)
-        act_webcam.triggered.connect(self.use_webcam)
-        self.act_webcam = act_webcam
-        act_rpi = QAction(_icon("icon_raspberry.png"), "Raspberry", self)
-        act_rpi.triggered.connect(self.use_raspberry)
-        act_open = QAction(_icon("icon_open.png"), "Abrir", self)
-        act_open.triggered.connect(self.open_file)
-        act_model = QAction(_icon("icon_model.png"), "Carregar modelo", self)
-        act_model.triggered.connect(self.load_model_dialog)
-
-        toolbar.addAction(act_webcam)
-        toolbar.addAction(act_rpi)
-        toolbar.addAction(act_open)
-        toolbar.addAction(act_model)
-        # show text under icons for clarity
-        toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         # detect cameras at startup and cache results to avoid rescanning on button click
         cams = find_all_cameras(max_index=6)
         self._detected_cams = cams
         if not cams:
-            act_webcam.setEnabled(False)
-            act_webcam.setToolTip("Nenhuma webcam detectada no sistema. Use 'Stream / Raspberry' para adicionar uma fonte.")
-            # disable the quick webcam button as well
             try:
                 self.btn_webcam.setEnabled(False)
+                self.btn_webcam.setToolTip("Nenhuma webcam detectada no sistema. Use 'Stream / Raspberry' para adicionar uma fonte.")
             except Exception:
                 pass
         else:
             cam_idx = cams[0]
-            act_webcam.setToolTip(f"Webcam detectada: índice {cam_idx} — clique para selecionar")
+            try:
+                self.btn_webcam.setToolTip(f"Webcam detectada: índice {cam_idx} — clique para selecionar")
+            except Exception:
+                pass
             # store preferred camera index (default to first found)
             self._preferred_cam_index = cam_idx
         # load persisted cameras if any
@@ -813,8 +830,11 @@ class MainWindow(QMainWindow):
                     cfg = json.load(f)
             if cfg.get("preferred") is not None:
                 self._preferred_cam_index = cfg.get("preferred")
-                act_webcam.setEnabled(True)
-                act_webcam.setToolTip(f"Usar webcam (índice {self._preferred_cam_index})")
+                try:
+                    self.btn_webcam.setEnabled(True)
+                    self.btn_webcam.setToolTip(f"Usar webcam (índice {self._preferred_cam_index})")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -875,6 +895,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
         frame = cv2.imread(path)
+        try:
+            # add opened image to gallery
+            self._add_image_to_gallery(frame)
+        except Exception:
+            pass
         self.process_and_show(frame)
 
     def open_file(self):
@@ -1051,6 +1076,11 @@ class MainWindow(QMainWindow):
 
         if alert_triggered:
             self._alert_user()
+            try:
+                # add snapshot to gallery when an alert occurs
+                self._add_image_to_gallery(orig)
+            except Exception:
+                pass
         else:
             # no alerts: update status and reset alert area to neutral
             try:
@@ -1145,37 +1175,41 @@ class MainWindow(QMainWindow):
             self._cam_state = state
             if state == 'disconnected':
                 self._cam_anim_timer.stop()
-                pix = self._make_circle_pixmap(QColor(180, 60, 60), 14)
-                self.cam_indicator.setPixmap(pix)
-                self.cam_indicator.setToolTip('Desconectado')
-                self.cam_indicator.setText('  Desconectado')
                 try:
-                    if hasattr(self, 'conn_widget'):
-                        self.conn_widget.set_state('disconnected')
+                    if hasattr(self, 'rpi_status_label'):
+                        self.rpi_status_label.setText('Raspberry: Desconectado')
+                        self.rpi_status_label.setStyleSheet("color:#f08080; padding-left:8px; font-weight:600;")
                 except Exception:
                     pass
             elif state == 'connecting':
                 # start pulsing animation
                 self._cam_pulse = 0.0
                 self._cam_anim_timer.start()
-                self.cam_indicator.setToolTip('Conectando...')
-                self.cam_indicator.setText('  Conectando')
                 try:
-                    if hasattr(self, 'conn_widget'):
-                        self.conn_widget.set_state('connecting')
+                    if hasattr(self, 'rpi_status_label'):
+                        self.rpi_status_label.setText('Raspberry: Conectando...')
+                        self.rpi_status_label.setStyleSheet("color:#f4d03f; padding-left:8px; font-weight:600;")
                 except Exception:
                     pass
             elif state == 'connected':
                 self._cam_anim_timer.stop()
-                pix = self._make_circle_pixmap(QColor(46, 125, 50), 14)
-                self.cam_indicator.setPixmap(pix)
-                self.cam_indicator.setToolTip('Conectado')
-                self.cam_indicator.setText('  Conectado')
                 try:
-                    if hasattr(self, 'conn_widget'):
-                        self.conn_widget.set_state('connected')
+                    if hasattr(self, 'rpi_status_label'):
+                        self.rpi_status_label.setText('Raspberry: Conectado')
+                        self.rpi_status_label.setStyleSheet("color:#8fe27a; padding-left:8px; font-weight:600;")
                 except Exception:
                     pass
+            # also update connection widget if present
+            try:
+                if hasattr(self, 'conn_widget') and self.conn_widget is not None:
+                    if state == 'disconnected':
+                        self.conn_widget.set_state('disconnected')
+                    elif state == 'connecting':
+                        self.conn_widget.set_state('connecting')
+                    else:
+                        self.conn_widget.set_state('connected')
+            except Exception:
+                pass
             else:
                 self._cam_anim_timer.stop()
         except Exception:
@@ -1187,12 +1221,8 @@ class MainWindow(QMainWindow):
             self._cam_pulse += 0.25
             if self._cam_pulse > 3.14:
                 self._cam_pulse = 0.0
-            # pulse between 8 and 16 px
-            r = 10 + int((1 + np.sin(self._cam_pulse)) * 3)
-            alpha = 180 + int((1 + np.sin(self._cam_pulse)) * 40)
-            color = QColor(250, 200, 20, max(80, min(255, alpha)))
-            pix = self._make_circle_pixmap(color, r)
-            self.cam_indicator.setPixmap(pix)
+            # animation timer active when connecting; currently we only update text color via set_cam_status
+            pass
         except Exception:
             pass
 
@@ -1211,6 +1241,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return pix
+    # dropdown handler removed; actions are direct buttons in the top bar
     def use_webcam(self):
         # use cached detected cameras (do not rescan here) and include saved stream
         cams = getattr(self, "_detected_cams", [])
@@ -1300,8 +1331,11 @@ class MainWindow(QMainWindow):
                     json.dump({"preferred": idx}, f)
             except Exception:
                 pass
-            self.act_webcam.setEnabled(True)
-            self.act_webcam.setToolTip(f"Usar webcam (índice {idx})")
+            try:
+                self.btn_webcam.setEnabled(True)
+                self.btn_webcam.setToolTip(f"Usar webcam (índice {idx})")
+            except Exception:
+                pass
             self.status_message(f"Câmera adicionada: índice {idx}")
             return
         except Exception:
@@ -1326,8 +1360,11 @@ class MainWindow(QMainWindow):
                     json.dump({"preferred": url}, f)
             except Exception:
                 pass
-            self.act_webcam.setEnabled(True)
-            self.act_webcam.setToolTip("Usar webcam (stream configurado)")
+            try:
+                self.btn_webcam.setEnabled(True)
+                self.btn_webcam.setToolTip("Usar webcam (stream configurado)")
+            except Exception:
+                pass
             self.status_message("Câmera de stream adicionada")
         except Exception:
             self.status_message("Erro ao testar URL da câmera.")
@@ -1400,6 +1437,67 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def clear_image(self):
+        """Stop any running source and clear the image area text/pixmap."""
+        try:
+            # stop capture but keep state consistent
+            try:
+                if self.video_thread and self.video_thread.isRunning():
+                    self.video_thread.stop()
+                    self.video_thread = None
+            except Exception:
+                pass
+            # clear pixmap and reset placeholder text
+            try:
+                self.image_label.clear()
+                self.image_label.setText("Carregue uma imagem ou inicie a câmera")
+                self.image_label.setAlignment(Qt.AlignCenter)
+            except Exception:
+                pass
+            self.status_message("Imagem limpa")
+        except Exception:
+            pass
+
+    def _add_image_to_gallery(self, bgr_frame):
+        """Add a BGR OpenCV frame to the thumbnail gallery."""
+        try:
+            if bgr_frame is None:
+                return
+            rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            bytes_per_line = ch * w
+            qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pix = QPixmap.fromImage(qimg)
+            thumb = pix.scaled(160, 90, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            item = QListWidgetItem()
+            item.setIcon(QIcon(thumb))
+            # store full pixmap for quick restore
+            item.setData(Qt.UserRole, pix)
+            item.setToolTip(time.strftime("%Y-%m-%d %H:%M:%S"))
+            self.gallery_widget.addItem(item)
+            # keep gallery size reasonable: limit to last 50
+            try:
+                if self.gallery_widget.count() > 50:
+                    self.gallery_widget.takeItem(0)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_gallery_item_clicked(self, item: QListWidgetItem):
+        try:
+            pm = item.data(Qt.UserRole)
+            if isinstance(pm, QPixmap):
+                self.image_label.setPixmap(pm.scaled(self.image_label.size(), Qt.KeepAspectRatio))
+            else:
+                # fallback: set icon
+                icon = item.icon()
+                if not icon.isNull():
+                    pix = icon.pixmap(self.image_label.size())
+                    self.image_label.setPixmap(pix)
+        except Exception:
+            pass
+
     def closeEvent(self, event):
         try:
             if self.video_thread:
@@ -1453,17 +1551,21 @@ class EntryDialog(QDialog):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    # dark theme stylesheet (simple)
+    # Windows 98 style sheet (classic, clean)
     app.setStyleSheet("""
-    QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1f2733, stop:1 #121417); color: #eaeaea; font-family: Segoe UI, Arial; }
-    QMainWindow { background: transparent; }
-    QStatusBar { background-color: rgba(20,20,20,0.6); color:#cfcfcf; }
-    QPushButton { background-color: #2f3742; border: 1px solid #3d4450; padding: 8px 12px; border-radius:8px; color:#eaeaea; }
-    QPushButton:hover { background-color: #3b4552; }
-    QToolBar { background: transparent; border: none; spacing:6px; }
-    QTextEdit { background-color: rgba(16,16,16,0.6); color: #e0e0e0; border-radius:8px; padding:8px; }
-    QLabel { color: #eaeaea; }
-    QSplitter::handle { background: rgba(255,255,255,0.02); }
+    QWidget { background: #c0c0c0; color: #000000; font-family: 'MS Sans Serif', Tahoma, Arial; font-size: 10pt; }
+    QMainWindow { background: #c0c0c0; }
+    QStatusBar { background: #c0c0c0; color: #000000; border-top: 1px solid #808080; }
+    QPushButton { background: #e0e0e0; border: 2px solid #808080; padding: 4px 8px; margin: 2px; }
+    QPushButton:pressed { background: #c0c0c0; border-style: inset; }
+    QToolBar { background: #d4d0c8; border: 1px solid #808080; }
+    QTextEdit { background: #ffffff; color: #000000; border: 1px solid #808080; }
+    QLabel { color: #000000; }
+    QLineEdit, QComboBox { background: #ffffff; color:#000000; border:1px solid #808080; padding:2px; }
+    QSplitter::handle { background: #c0c0c0; }
+    QMenuBar { background: #d4d0c8; color:#000000; }
+    QMenu { background:#ffffff; color:#000000; border:1px solid #808080; }
+    QStatusBar QLabel { padding-left:6px; }
     """)
     dlg = EntryDialog()
     res = dlg.exec_()
