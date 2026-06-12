@@ -1,61 +1,20 @@
-Detecção de Queimadas - Protótipo PyQt
-=====================================
+Detecção de Queimadas — Rápido
 
-Este protótipo usa `ultralytics` (YOLOv8) para detectar fogo/fumaça e `PyQt5` para a interface gráfica.
+Requisitos
+- Python 3.8+
+- pip
 
-**Resumo**: a aplicação abre uma janela para carregar imagens, usar webcam ou conectar streams (RTSP/HTTP). O modelo padrão é `best.pt`; se estiver ausente, o app tentará baixá-lo do Hugging Face.
-
-**Requisitos**
-- Python 3.8+ (recomendado 3.10+)
-- Sistema operacional: Windows (testado) ou Linux
-- GPU opcional (se usar PyTorch/torch com suporte CUDA)
-
-**Instalação**
-1. Crie e ative um virtualenv (opcional, recomendado):
-
+Instalação
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # PowerShell
-# ou: .\.venv\Scripts\activate  # cmd.exe
-```
-
-2. Instale dependências:
-
-```powershell
+.\.venv\Scripts\Activate.ps1  # PowerShell
 python -m pip install -r requirements.txt
 ```
 
-Observação: o pacote `ultralytics` pode requerer `torch`. Se aparecer erro relacionado ao PyTorch, instale a versão apropriada do PyTorch seguindo as instruções em https://pytorch.org (por exemplo `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118` para CUDA 11.8).
-
-**Como executar**
-Abra um terminal no diretório do projeto e execute:
-
+Executar
 ```powershell
 python fire_detector_app.py
 ```
 
-Ao iniciar, aparecerá uma tela de boas-vindas; clique em "Iniciar" para abrir a janela principal.
 
-**Comportamento importante**
-- Modelo: o app procura por `best.pt` no diretório do projeto. Se não encontrar, tentará baixar `best.pt` do repositório Hugging Face `rabahdev/fire-smoke-yolov8n`.
-- Carregar modelo customizado: use o botão "Carregar modelo (.pt)" na interface para selecionar outro arquivo `.pt`. O caminho selecionado é salvo em `last_model.txt` para uso futuro.
-- Câmeras/Streams: você pode usar webcam (índice local) ou conectar um stream RTSP/HTTP. URLs preferidas são salvas em `cameras.json`.
-- Logs: eventos de detecção são gravados em `events.log` no diretório do projeto.
 
-**Arquivos relevantes**
-- [fire_detector_app.py](fire_detector_app.py) — aplicação principal (PyQt)
-- [requirements.txt](requirements.txt) — dependências Python
-- [cameras.json](cameras.json) — configuração persistente (opcional)
-- [last_model.txt](last_model.txt) — caminho do último modelo usado (opcional)
-
-**Dicas e solução de problemas**
-- Se não houver webcam detectada, use "Stream / Raspberry (URL)" e informe um endpoint HTTP (imagem .jpg/.png) ou RTSP.
-- Se o modelo demorar para carregar, aguarde — o carregamento pode levar vários segundos/minutos dependendo do hardware.
-- Para forçar um modelo local, coloque o `.pt` no diretório do projeto com nome `best.pt` ou use o botão de carregar modelo.
-
-**Executar sem interface gráfica**
-Esta aplicação foi desenhada como uma GUI PyQt; não há suporte explícito para modo headless nesta versão.
-
----
-
-Se quiser, atualizo este README com instruções de instalação de GPU/torch específicas para Windows ou um exemplo de `last_model.txt`.
