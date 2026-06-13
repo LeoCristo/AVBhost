@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
     QAction,
     QTextEdit,
     QSizePolicy,
+    QGroupBox,
     QDialog,
     QListWidget,
     QListWidgetItem,
@@ -263,10 +264,10 @@ class ModelLoader(QThread):
 
 
 class RaspberryDialog(QDialog):
-    """Dialog to test and preview a Raspberry (RTSP/HTTP) stream before connecting."""
+    """Dialog to test and preview a Raspberry (RTSP/HTTP) host remoto before connecting."""
     def __init__(self, parent=None, initial_url=""):
         super().__init__(parent)
-        self.setWindowTitle("Conectar Raspberry / Stream")
+        self.setWindowTitle("Conectar Raspberry / Host Remoto")
         self.resize(560, 360)
         self.parent = parent
 
@@ -289,6 +290,7 @@ class RaspberryDialog(QDialog):
         self.status_label = QLabel("Status: aguardando teste")
         self.status_label.setStyleSheet("color:#d0d0d0;")
 
+        self.preview_label = QLabel()
         self.preview_label = QLabel()
         self.preview_label.setFixedSize(520, 260)
         self.preview_label.setStyleSheet("background:#0e0e0e; border:1px solid #333; border-radius:6px;")
@@ -318,21 +320,50 @@ class RaspberryDialog(QDialog):
             return
         self._set_status("Testando...")
         QApplication.processEvents()
-        # try HTTP image first
-        if url.lower().startswith("http") and any(url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png")):
+        # try HTTP/HTTPS image first (accept endpoints that return images even without file extension)
+        if url.lower().startswith("http"):
             try:
                 import requests
 
-                resp = requests.get(url, timeout=6)
+                # Some cameras/hosts block non-browser agents; send a common User-Agent
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                resp = requests.get(url, timeout=8, allow_redirects=True, headers=headers)
                 if resp.status_code == 200:
-                    arr = np.frombuffer(resp.content, dtype=np.uint8)
-                    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                    if frame is not None:
-                        self._show_frame(frame)
-                        self._set_status("Imagem HTTP recebida", ok=True)
-                        self.btn_connect.setEnabled(True)
-                        return
-                self._set_status(f"Falha HTTP: {resp.status_code}")
+                    content_type = resp.headers.get('content-type', '')
+                    # if it's an image payload, decode and show
+                    if content_type.startswith('image'):
+                        arr = np.frombuffer(resp.content, dtype=np.uint8)
+                        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                        if frame is not None:
+                            self._show_frame(frame)
+                            self._set_status("Imagem HTTP recebida", ok=True)
+                            self.btn_connect.setEnabled(True)
+                            return
+                    else:
+                        # fallback: maybe an HTTP stream; try VideoCapture
+                        try:
+                            cap = cv2.VideoCapture(url)
+                            ret, frame = cap.read()
+                            try:
+                                cap.release()
+                            except Exception:
+                                pass
+                            if ret and frame is not None:
+                                self._show_frame(frame)
+                                self._set_status("Host remoto HTTP recebido", ok=True)
+                                self.btn_connect.setEnabled(True)
+                                return
+                        except Exception:
+                            pass
+                    # if we reached here, content returned but couldn't parse as image
+                    self._set_status(f"HTTP recebido, mas não é imagem (content-type: {content_type})")
+                else:
+                    # Give more helpful output on 403 to guide debugging
+                    if resp.status_code == 403:
+                        www = resp.headers.get('WWW-Authenticate', '')
+                        self._set_status(f"403 Forbidden (WWW-Authenticate: {www})")
+                    else:
+                        self._set_status(f"Falha HTTP: {resp.status_code}")
             except Exception as e:
                 self._set_status(f"Erro HTTP: {e}")
             return
@@ -361,10 +392,10 @@ class RaspberryDialog(QDialog):
                 pass
             if frames:
                 self._show_frame(frames[-1])
-                self._set_status("Stream recebido", ok=True)
+                self._set_status("Host remoto recebido", ok=True)
                 self.btn_connect.setEnabled(True)
             else:
-                self._set_status("Não foi possível ler frames do stream")
+                self._set_status("Não foi possível ler frames do host remoto")
         except Exception as e:
             self._set_status(f"Erro: {e}")
 
@@ -622,10 +653,10 @@ class ConnectionWidget(QFrame):
                 pass
             if frames:
                 self._show_frame(frames[-1])
-                self._set_status("Stream recebido", ok=True)
+                self._set_status("Host remoto recebido", ok=True)
                 self.btn_connect.setEnabled(True)
             else:
-                self._set_status("Não foi possível ler frames do stream")
+                self._set_status("Não foi possível ler frames do host remoto")
         except Exception as e:
             self._set_status(f"Erro: {e}")
 
@@ -676,25 +707,26 @@ class MainWindow(QMainWindow):
         self.btn_webcam.setToolTip("Selecionar/usar webcam")
         self.btn_webcam.clicked.connect(self.use_webcam)
 
-        self.btn_raspberry = QPushButton("Stream")
-        self.btn_raspberry.setToolTip("Conectar stream RTSP/HTTP")
+        self.btn_raspberry = QPushButton("Host Remoto")
+        self.btn_raspberry.setToolTip("Conectar host remoto (RTSP/HTTP)")
         self.btn_raspberry.clicked.connect(self.use_raspberry)
 
-        self.btn_open_file = QPushButton("Abrir")
-        self.btn_open_file.setToolTip("Abrir arquivo de imagem ou vídeo")
+        self.btn_open_file = QPushButton("Abrir imagem (local)")
+        self.btn_open_file.setToolTip("Abrir arquivo de imagem local")
         self.btn_open_file.clicked.connect(self.open_file)
 
         self.btn_load_model = QPushButton("Carregar modelo")
         self.btn_load_model.setToolTip("Carregar arquivo .pt")
         self.btn_load_model.clicked.connect(self.load_model_dialog)
+        # button to disconnect remote host only
+        self.btn_disconnect_stream = QPushButton("Desconectar host remoto")
+        self.btn_disconnect_stream.setToolTip("Desconectar host remoto (RTSP/HTTP)")
+        self.btn_disconnect_stream.clicked.connect(self.disconnect_stream)
 
-        self.btn_clear = QPushButton("Limpar")
-        self.btn_clear.setToolTip("Limpar imagem da tela")
-        self.btn_clear.clicked.connect(self.clear_image)
-
+        # Parar will now clear the image (do not stop webcam automatically)
         self.btn_stop_cam = QPushButton("Parar")
-        self.btn_stop_cam.setToolTip("Parar captura/stream atual")
-        self.btn_stop_cam.clicked.connect(self.stop_video)
+        self.btn_stop_cam.setToolTip("Limpar imagem da tela")
+        self.btn_stop_cam.clicked.connect(self.clear_image)
 
         # logfile viewer
         self.log_widget = QTextEdit()
@@ -723,7 +755,58 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        for b in (self.btn_webcam, self.btn_raspberry, self.btn_open_file, self.btn_load_model, self.btn_clear, self.btn_stop_cam):
+
+        # group local test buttons (Webcam, Abrir)
+        try:
+            # group similar local-test actions inside a visible box
+            local_box = QGroupBox("Testes Locais")
+            local_layout = QHBoxLayout()
+            local_layout.setContentsMargins(6, 4, 6, 4)
+            local_layout.setSpacing(6)
+            for b in (self.btn_webcam, self.btn_open_file, self.btn_stop_cam):
+                try:
+                    # keep original height but increase width for readability
+                    b.setFixedHeight(34)
+                    b.setMinimumWidth(160)
+                    b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+                except Exception:
+                    pass
+                local_layout.addWidget(b)
+            local_box.setLayout(local_layout)
+            btn_layout.addWidget(local_box)
+        except Exception:
+            # fallback: just add buttons side-by-side
+            for b in (self.btn_webcam, self.btn_open_file, self.btn_stop_cam):
+                btn_layout.addWidget(b)
+
+        # group stream controls inside a visible box
+        try:
+            stream_box = QGroupBox("Host Remoto")
+            sv = QVBoxLayout()
+            sv.setContentsMargins(6, 4, 6, 4)
+            sv.setSpacing(6)
+            inner = QWidget()
+            inner_l = QHBoxLayout()
+            inner_l.setContentsMargins(0, 0, 0, 0)
+            inner_l.setSpacing(6)
+            for b in (self.btn_raspberry, self.btn_disconnect_stream):
+                try:
+                    b.setFixedHeight(34)
+                    b.setMinimumWidth(130)
+                    b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+                except Exception:
+                    pass
+                inner_l.addWidget(b)
+            inner.setLayout(inner_l)
+            sv.addWidget(inner)
+            stream_box.setLayout(sv)
+            btn_layout.addWidget(stream_box)
+        except Exception:
+            for b in (self.btn_raspberry, self.btn_stop_cam):
+                btn_layout.addWidget(b)
+
+        # remaining action buttons
+        for b in (self.btn_load_model,):
             try:
                 b.setFixedHeight(36)
                 b.setMinimumWidth(140)
@@ -770,8 +853,22 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(4, 4, 4, 4)
         right_layout.setSpacing(6)
         # alert above log
+        # title for alert area
+        alert_title = QLabel("Alerta de Detecção")
+        alert_title.setAlignment(Qt.AlignCenter)
+        alert_title.setFixedHeight(28)
+        alert_title.setStyleSheet("background:#3a3a3a; color:#ffffff; font-weight:700; border-radius:6px; padding:4px;")
+        right_layout.addWidget(alert_title)
         right_layout.addWidget(self.alert_label)
+
+        # title for log area
+        log_title = QLabel("Log de Eventos")
+        log_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        log_title.setFixedHeight(22)
+        log_title.setStyleSheet("font-weight:700; padding-left:6px;")
+        right_layout.addWidget(log_title)
         right_layout.addWidget(self.log_widget)
+
         # gallery of previously seen images (thumbnails)
         self.gallery_widget = QListWidget()
         self.gallery_widget.setViewMode(QListWidget.IconMode)
@@ -788,6 +885,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.gallery_widget.itemClicked.connect(self._on_gallery_item_clicked)
+        # title for gallery area
+        gal_title = QLabel("Detecções Anteriores")
+        gal_title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        gal_title.setFixedHeight(22)
+        gal_title.setStyleSheet("font-weight:700; padding-left:6px;")
+        right_layout.addWidget(gal_title)
         right_layout.addWidget(self.gallery_widget)
         right_frame.setLayout(right_layout)
 
@@ -809,7 +912,7 @@ class MainWindow(QMainWindow):
         if not cams:
             try:
                 self.btn_webcam.setEnabled(False)
-                self.btn_webcam.setToolTip("Nenhuma webcam detectada no sistema. Use 'Stream / Raspberry' para adicionar uma fonte.")
+                self.btn_webcam.setToolTip("Nenhuma webcam detectada no sistema. Use 'Host Remoto / Raspberry' para adicionar uma fonte.")
             except Exception:
                 pass
         else:
@@ -889,9 +992,16 @@ class MainWindow(QMainWindow):
         self.status.showMessage(msg, 5000)
 
     def open_image(self):
+        # block opening local images when host remoto active
+        try:
+            if not getattr(self, '_local_tests_enabled', True):
+                self.status_message("Opções locais bloqueadas enquanto host remoto ativo")
+                return
+        except Exception:
+            pass
         # stop any running video source before showing a static image
         self.stop_video()
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir imagem", "", "Images (*.png *.jpg *.jpeg)")
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir imagem local", "", "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp)")
         if not path:
             return
         frame = cv2.imread(path)
@@ -903,9 +1013,16 @@ class MainWindow(QMainWindow):
         self.process_and_show(frame)
 
     def open_file(self):
+        # block opening local files when host remoto active
+        try:
+            if not getattr(self, '_local_tests_enabled', True):
+                self.status_message("Opções locais bloqueadas enquanto host remoto ativo")
+                return
+        except Exception:
+            pass
         # stop any running video source before opening a file (image or video)
         self.stop_video()
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo", "", "Media (*.png *.jpg *.jpeg *.mp4 *.avi *.mov *.mkv)")
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo local", "", "Media (*.png *.jpg *.jpeg *.mp4 *.avi *.mov *.mkv)")
         if not path:
             return
         ext = os.path.splitext(path)[1].lower()
@@ -953,6 +1070,19 @@ class MainWindow(QMainWindow):
             # when the thread reports started, set connected
             self.video_thread.started.connect(lambda: (self.status_message(f"Fonte iniciada: {source}"), self.set_cam_status('connected')))
             self.video_thread.start()
+            # track current source for disconnect logic (int for webcams, str for remote hosts)
+            try:
+                self._current_source = source
+            except Exception:
+                self._current_source = None
+                # if source is a remote host (string with scheme), disable local tests
+            try:
+                if isinstance(source, str) and (source.lower().startswith("rtsp") or source.lower().startswith("http") or "://" in source):
+                    self._set_local_tests_enabled(False)
+                else:
+                    self._set_local_tests_enabled(True)
+            except Exception:
+                pass
         except Exception as e:
             self.status_message(f"Falha ao iniciar fonte: {e}")
 
@@ -967,6 +1097,35 @@ class MainWindow(QMainWindow):
         # mark disconnected
         try:
             self.set_cam_status('disconnected')
+        except Exception:
+            pass
+        try:
+            # when stopping any source, re-enable local test options
+            self._set_local_tests_enabled(True)
+        except Exception:
+            pass
+
+    def disconnect_stream(self):
+        """Disconnect only a remote host (RTSP/HTTP). Does not stop local webcam."""
+        try:
+            src = getattr(self, '_current_source', None)
+            # treat numeric indexes as webcams; strings as remote hosts
+            if isinstance(src, str) and src:
+                if self.video_thread:
+                    self.video_thread.stop()
+                    self.video_thread = None
+                    self.status_message("Host remoto desconectado")
+                    try:
+                        self.set_cam_status('disconnected')
+                    except Exception:
+                        pass
+                    try:
+                        self._set_local_tests_enabled(True)
+                    except Exception:
+                        pass
+                    return
+            # if src is int or no remote stream active
+            self.status_message("Nenhum host remoto ativo")
         except Exception:
             pass
 
@@ -1215,6 +1374,34 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _set_local_tests_enabled(self, enabled: bool):
+        """Enable or disable local test controls (webcam, open local image)."""
+        try:
+            self._local_tests_enabled = bool(enabled)
+            try:
+                if hasattr(self, 'btn_webcam'):
+                    self.btn_webcam.setEnabled(bool(enabled))
+                if hasattr(self, 'btn_open_file'):
+                    self.btn_open_file.setEnabled(bool(enabled))
+            except Exception:
+                pass
+            # update tooltip to explain why disabled
+            try:
+                if not enabled:
+                    if hasattr(self, 'btn_webcam'):
+                        self.btn_webcam.setToolTip("Bloqueado: host remoto ativo")
+                    if hasattr(self, 'btn_open_file'):
+                        self.btn_open_file.setToolTip("Bloqueado: host remoto ativo")
+                else:
+                    if hasattr(self, '_preferred_cam_index') and hasattr(self, 'btn_webcam'):
+                        self.btn_webcam.setToolTip(f"Webcam detectada: índice {getattr(self, '_preferred_cam_index', '')}")
+                    if hasattr(self, 'btn_open_file'):
+                        self.btn_open_file.setToolTip("Abrir arquivo de imagem local")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _update_cam_anim(self):
         # called by timer when in 'connecting' state; update pulse
         try:
@@ -1243,7 +1430,14 @@ class MainWindow(QMainWindow):
         return pix
     # dropdown handler removed; actions are direct buttons in the top bar
     def use_webcam(self):
-        # use cached detected cameras (do not rescan here) and include saved stream
+        # block local tests if disabled (host remoto connected)
+        try:
+            if not getattr(self, '_local_tests_enabled', True):
+                self.status_message("Opções locais bloqueadas enquanto host remoto ativo")
+                return
+        except Exception:
+            pass
+        # use cached detected cameras (do not rescan here) and include saved host remoto
         cams = getattr(self, "_detected_cams", [])
         choices = [f"Índice {c}" for c in cams]
         # include persisted URL if present
@@ -1306,7 +1500,7 @@ class MainWindow(QMainWindow):
         self.start_video(url)
 
     def add_camera_dialog(self):
-        # Ask user for camera index or stream URL
+        # Ask user for camera index or host remoto URL
         txt, ok = QInputDialog.getText(self, "Adicionar câmera", "Digite índice (0,1,...) ou URL (rtsp/http):")
         if not ok or not txt:
             return
@@ -1350,7 +1544,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             if not okp:
-                self.status_message("Não foi possível abrir o stream/URL informado.")
+                self.status_message("Não foi possível abrir o host remoto/URL informado.")
                 return
             # success
             self._preferred_cam_index = url
@@ -1362,10 +1556,10 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self.btn_webcam.setEnabled(True)
-                self.btn_webcam.setToolTip("Usar webcam (stream configurado)")
+                self.btn_webcam.setToolTip("Usar webcam (host remoto configurado)")
             except Exception:
                 pass
-            self.status_message("Câmera de stream adicionada")
+            self.status_message("Host remoto adicionado")
         except Exception:
             self.status_message("Erro ao testar URL da câmera.")
 
@@ -1414,7 +1608,7 @@ class MainWindow(QMainWindow):
                 json.dump({"preferred": url}, f)
         except Exception:
             pass
-        self.status_message("Câmera de stream selecionada")
+        self.status_message("Host remoto selecionado")
 
     def use_raspberry(self):
         dlg = RaspberryDialog(parent=self, initial_url=getattr(self, '_preferred_cam_index', ''))
@@ -1438,16 +1632,8 @@ class MainWindow(QMainWindow):
             pass
 
     def clear_image(self):
-        """Stop any running source and clear the image area text/pixmap."""
+        """Clear the image area text/pixmap without stopping webcam/host remoto."""
         try:
-            # stop capture but keep state consistent
-            try:
-                if self.video_thread and self.video_thread.isRunning():
-                    self.video_thread.stop()
-                    self.video_thread = None
-            except Exception:
-                pass
-            # clear pixmap and reset placeholder text
             try:
                 self.image_label.clear()
                 self.image_label.setText("Carregue uma imagem ou inicie a câmera")
